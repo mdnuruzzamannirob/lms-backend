@@ -30,9 +30,8 @@ userSchema.pre("save", async function () {
 });
 
 // Exclude soft-deleted users from find queries
-userSchema.pre(/^find/, function (this: any, next: () => void) {
+userSchema.pre(/^find/, function (this: any) {
   this.find({ isDeleted: { $ne: true } });
-  next();
 });
 
 userSchema.methods.isPasswordMatch = async function (
