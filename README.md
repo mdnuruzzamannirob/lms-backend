@@ -187,113 +187,436 @@ Base URL: `http://localhost:5000/api/v1`
 
 ### Health Check
 
-| Method | Endpoint  | Description         |
-| ------ | --------- | ------------------- |
-| GET    | `/health` | Server health check |
+| Method | Endpoint  | Auth | Description         |
+| ------ | --------- | ---- | ------------------- |
+| GET    | `/health` | ❌   | Server health check |
 
-### Authentication
+---
 
-| Method | Endpoint                 | Auth | Description                                    |
-| ------ | ------------------------ | ---- | ---------------------------------------------- |
-| POST   | `/auth/register`         | ❌   | Register (sends email verification OTP)        |
-| POST   | `/auth/verify-email`     | ❌   | Verify email with OTP → returns tokens         |
-| POST   | `/auth/resend-otp`       | ❌   | Resend OTP (email_verification/password_reset) |
-| POST   | `/auth/login`            | ❌   | Login (requires verified email)                |
-| POST   | `/auth/refresh-token`    | ❌   | Refresh access token                           |
-| POST   | `/auth/change-password`  | ✅   | Change password                                |
-| POST   | `/auth/forgot-password`  | ❌   | Send password reset OTP to email               |
-| POST   | `/auth/verify-reset-otp` | ❌   | Verify reset OTP → returns resetToken          |
-| POST   | `/auth/reset-password`   | ❌   | Reset password with resetToken                 |
-| POST   | `/auth/logout`           | ✅   | Logout                                         |
+### 🔐 Authentication
 
-### Users
+| Method | Endpoint                 | Auth          | Description                             |
+| ------ | ------------------------ | ------------- | --------------------------------------- |
+| POST   | `/auth/register`         | ❌            | Register — sends email verification OTP |
+| POST   | `/auth/verify-email`     | ❌            | Verify email with OTP → returns tokens  |
+| POST   | `/auth/resend-otp`       | ❌            | Resend OTP                              |
+| POST   | `/auth/login`            | ❌            | Login (email must be verified)          |
+| POST   | `/auth/refresh-token`    | 🍪 Cookie     | Refresh access token                    |
+| POST   | `/auth/change-password`  | ✅ User/Admin | Change password                         |
+| POST   | `/auth/forgot-password`  | ❌            | Send password reset OTP                 |
+| POST   | `/auth/verify-reset-otp` | ❌            | Verify reset OTP → returns resetToken   |
+| POST   | `/auth/reset-password`   | ❌            | Reset password with resetToken          |
+| POST   | `/auth/logout`           | ✅ User/Admin | Logout (clears refreshToken cookie)     |
 
-| Method | Endpoint     | Auth          | Description        |
-| ------ | ------------ | ------------- | ------------------ |
-| GET    | `/users/me`  | ✅ User/Admin | Get own profile    |
-| PATCH  | `/users/me`  | ✅ User/Admin | Update own profile |
-| GET    | `/users`     | ✅ Admin      | List all users     |
-| POST   | `/users`     | ✅ Admin      | Create user        |
-| GET    | `/users/:id` | ✅ Admin      | Get user by ID     |
-| PATCH  | `/users/:id` | ✅ Admin      | Update user        |
-| DELETE | `/users/:id` | ✅ Admin      | Soft delete user   |
+#### `POST /auth/register` — body
 
-### Categories
+```json
+{
+  "name": "John Doe", // required, 2–50 chars
+  "email": "john@email.com", // required, valid email
+  "password": "Pass@123" // required, min 8 chars, uppercase + lowercase + number
+}
+```
+
+#### `POST /auth/verify-email` — body
+
+```json
+{
+  "email": "john@email.com", // required
+  "otp": "123456" // required, 6-digit numeric
+}
+```
+
+Sets `refreshToken` cookie. Returns `{ accessToken }`.
+
+#### `POST /auth/resend-otp` — body
+
+```json
+{
+  "email": "john@email.com", // required
+  "type": "email_verification" // required: "email_verification" | "password_reset"
+}
+```
+
+#### `POST /auth/login` — body
+
+```json
+{
+  "email": "admin@library.com", // required
+  "password": "Admin@123" // required
+}
+```
+
+Sets `refreshToken` cookie. Returns `{ accessToken }`.
+
+#### `POST /auth/refresh-token`
+
+- **Cookie required:** `refreshToken`
+- No body needed. Returns `{ accessToken }`.
+
+#### `POST /auth/change-password` — body
+
+```json
+{
+  "currentPassword": "OldPass@123", // required
+  "newPassword": "NewPass@456" // required, same password rules
+}
+```
+
+#### `POST /auth/forgot-password` — body
+
+```json
+{
+  "email": "john@email.com" // required
+}
+```
+
+#### `POST /auth/verify-reset-otp` — body
+
+```json
+{
+  "email": "john@email.com", // required
+  "otp": "123456" // required, 6-digit numeric
+}
+```
+
+Returns `{ resetToken }` (valid 10 minutes).
+
+#### `POST /auth/reset-password` — body
+
+```json
+{
+  "resetToken": "<token from verify-reset-otp>", // required
+  "newPassword": "NewPass@456" // required
+}
+```
+
+---
+
+### 👤 Users
+
+| Method | Endpoint     | Auth          | Description                       |
+| ------ | ------------ | ------------- | --------------------------------- |
+| GET    | `/users/me`  | ✅ User/Admin | Get own profile                   |
+| PATCH  | `/users/me`  | ✅ User/Admin | Update own profile (name only)    |
+| GET    | `/users`     | ✅ Admin      | List all users (paginated)        |
+| POST   | `/users`     | ✅ Admin      | Create user (auto email-verified) |
+| GET    | `/users/:id` | ✅ Admin      | Get user by ID                    |
+| PATCH  | `/users/:id` | ✅ Admin      | Update user                       |
+| DELETE | `/users/:id` | ✅ Admin      | Soft delete user                  |
+
+#### `POST /users` — body
+
+```json
+{
+  "name": "Jane Doe", // required, 2–50 chars
+  "email": "jane@email.com", // required
+  "password": "Pass@123", // required
+  "role": "user" // optional: "user" | "admin" (default: "user")
+}
+```
+
+#### `PATCH /users/me` — body
+
+```json
+{
+  "name": "New Name" // optional
+}
+```
+
+#### `PATCH /users/:id` — body (Admin)
+
+```json
+{
+  "name": "New Name", // optional
+  "isActive": false // optional
+}
+```
+
+#### `GET /users` — query params
+
+| Param       | Type    | Default   | Description               |
+| ----------- | ------- | --------- | ------------------------- |
+| `page`      | number  | 1         | Page number               |
+| `limit`     | number  | 10        | Items per page            |
+| `sortBy`    | string  | createdAt | Sort field                |
+| `sortOrder` | string  | desc      | `asc` \| `desc`           |
+| `search`    | string  | —         | Search by name or email   |
+| `role`      | string  | —         | Filter: `user` \| `admin` |
+| `isActive`  | boolean | —         | Filter: `true` \| `false` |
+
+---
+
+### 🏷️ Categories
 
 | Method | Endpoint          | Auth          | Description          |
 | ------ | ----------------- | ------------- | -------------------- |
 | GET    | `/categories`     | ✅ User/Admin | List all categories  |
 | POST   | `/categories`     | ✅ Admin      | Create category      |
-| GET    | `/categories/:id` | ✅ User/Admin | Get category         |
+| GET    | `/categories/:id` | ✅ User/Admin | Get category by ID   |
 | PATCH  | `/categories/:id` | ✅ Admin      | Update category      |
 | DELETE | `/categories/:id` | ✅ Admin      | Soft delete category |
 
-### Books
+#### `POST /categories` — body
 
-| Method | Endpoint           | Auth          | Description                           |
-| ------ | ------------------ | ------------- | ------------------------------------- |
-| GET    | `/books`           | ✅ User/Admin | List books (search, filter, paginate) |
-| POST   | `/books`           | ✅ Admin      | Create book                           |
-| GET    | `/books/:id`       | ✅ User/Admin | Get book details                      |
-| PATCH  | `/books/:id`       | ✅ Admin      | Update book                           |
-| DELETE | `/books/:id`       | ✅ Admin      | Soft delete book                      |
-| PATCH  | `/books/:id/cover` | ✅ Admin      | Upload cover image                    |
+```json
+{
+  "name": "Science Fiction", // required
+  "description": "Sci-fi books..." // optional
+}
+```
 
-**Query Parameters (GET /books):**
+#### `PATCH /categories/:id` — body
 
-- `page` — Page number (default: 1)
-- `limit` — Items per page (default: 10)
-- `sortBy` — Sort field (default: createdAt)
-- `sortOrder` — asc / desc (default: desc)
-- `search` — Search by title, author, ISBN
-- `category` — Filter by category ID
-- `language` — Filter by language
-- `available` — Filter by availability (true/false)
+```json
+{
+  "name": "Updated Name", // optional
+  "description": "Updated desc" // optional
+}
+```
 
-### Members
+#### `GET /categories` — query params
+
+| Param    | Type   | Description    |
+| -------- | ------ | -------------- |
+| `search` | string | Filter by name |
+
+---
+
+### 📚 Books
+
+| Method | Endpoint           | Auth          | Description                              |
+| ------ | ------------------ | ------------- | ---------------------------------------- |
+| GET    | `/books`           | ✅ User/Admin | List books (search, filter, paginate)    |
+| POST   | `/books`           | ✅ Admin      | Create book                              |
+| GET    | `/books/:id`       | ✅ User/Admin | Get book details                         |
+| PATCH  | `/books/:id`       | ✅ Admin      | Update book                              |
+| DELETE | `/books/:id`       | ✅ Admin      | Soft delete book                         |
+| PATCH  | `/books/:id/cover` | ✅ Admin      | Upload cover image (multipart/form-data) |
+
+#### `POST /books` — body
+
+```json
+{
+  "title": "The Great Gatsby", // required, max 300 chars
+  "isbn": "9780743273565", // required, 10–13 chars (unique)
+  "authors": ["F. Scott Fitzgerald"], // required, array, min 1
+  "publisher": "Scribner", // optional
+  "publishedYear": 1925, // optional, 1000–2100
+  "category": "<categoryId>", // required, MongoDB ObjectId
+  "language": "English", // optional
+  "pages": 180, // optional, positive integer
+  "totalCopies": 5, // required, min 0
+  "availableCopies": 5, // optional (defaults to totalCopies)
+  "shelfLocation": "A-12", // optional
+  "coverImage": "https://...", // optional, valid URL
+  "description": "A story of..." // optional, max 2000 chars
+}
+```
+
+#### `PATCH /books/:id` — body (all fields optional, same as create)
+
+#### `PATCH /books/:id/cover` — multipart/form-data
+
+- **Field:** `coverImage` (file)
+- Formats: JPEG, PNG, WebP, GIF — Max: 5MB
+
+#### `GET /books` — query params
+
+| Param       | Type    | Default   | Description                   |
+| ----------- | ------- | --------- | ----------------------------- |
+| `page`      | number  | 1         | Page number                   |
+| `limit`     | number  | 10        | Items per page                |
+| `sortBy`    | string  | createdAt | Sort field                    |
+| `sortOrder` | string  | desc      | `asc` \| `desc`               |
+| `search`    | string  | —         | Search title, author, or ISBN |
+| `category`  | string  | —         | Filter by category ObjectId   |
+| `language`  | string  | —         | Filter by language            |
+| `available` | boolean | —         | `true` = only in-stock books  |
+
+---
+
+### 👥 Members
 
 | Method | Endpoint       | Auth          | Description        |
 | ------ | -------------- | ------------- | ------------------ |
 | GET    | `/members/me`  | ✅ User/Admin | Get own membership |
 | GET    | `/members`     | ✅ Admin      | List all members   |
 | POST   | `/members`     | ✅ Admin      | Create member      |
-| GET    | `/members/:id` | ✅ Admin      | Get member         |
+| GET    | `/members/:id` | ✅ Admin      | Get member by ID   |
 | PATCH  | `/members/:id` | ✅ Admin      | Update member      |
 | DELETE | `/members/:id` | ✅ Admin      | Soft delete member |
 
-### Borrowing
+#### `POST /members` — body
 
-| Method | Endpoint              | Auth          | Description             |
-| ------ | --------------------- | ------------- | ----------------------- |
-| GET    | `/borrows/my-history` | ✅ User/Admin | Own borrow history      |
-| GET    | `/borrows/overdue`    | ✅ Admin      | List overdue records    |
-| POST   | `/borrows`            | ✅ Admin      | Issue a book            |
-| GET    | `/borrows`            | ✅ Admin      | List all borrow records |
-| GET    | `/borrows/:id`        | ✅ Admin      | Get borrow record       |
-| PATCH  | `/borrows/:id/return` | ✅ Admin      | Return a book           |
-| PATCH  | `/borrows/:id/renew`  | ✅ Admin      | Renew a borrow          |
-| PATCH  | `/borrows/:id/lost`   | ✅ Admin      | Mark book as lost       |
+```json
+{
+  "user": "<userId>", // required, MongoDB ObjectId
+  "membershipType": "standard", // optional: "student" | "standard" | "premium"
+  "phone": "+1234567890", // optional, max 20 chars
+  "address": "123 Main St", // optional, max 300 chars
+  "membershipExpiry": "2027-12-31" // required, ISO date string
+}
+```
 
-### Fines
+#### `PATCH /members/:id` — body
 
-| Method | Endpoint           | Auth          | Description       |
-| ------ | ------------------ | ------------- | ----------------- |
-| GET    | `/fines/me`        | ✅ User/Admin | Own fines         |
-| GET    | `/fines`           | ✅ Admin      | List all fines    |
-| GET    | `/fines/:id`       | ✅ Admin      | Get fine details  |
-| PATCH  | `/fines/:id/pay`   | ✅ Admin      | Mark fine as paid |
-| PATCH  | `/fines/:id/waive` | ✅ Admin      | Waive a fine      |
+```json
+{
+  "membershipType": "premium", // optional (auto-updates maxBooksAllowed)
+  "phone": "+1234567890", // optional
+  "address": "New address", // optional
+  "maxBooksAllowed": 8, // optional, 1–20
+  "membershipExpiry": "2028-12-31", // optional
+  "isActive": true // optional
+}
+```
 
-### Reservations
+> **maxBooksAllowed defaults:** student=3, standard=5, premium=10. Updated automatically when `membershipType` changes.
+
+#### `GET /members` — query params
+
+| Param            | Type    | Description                                  |
+| ---------------- | ------- | -------------------------------------------- |
+| `page`           | number  | Page number (default: 1)                     |
+| `limit`          | number  | Items per page (default: 10)                 |
+| `search`         | string  | Search by membership ID                      |
+| `membershipType` | string  | Filter: `student` \| `standard` \| `premium` |
+| `isActive`       | boolean | Filter: `true` \| `false`                    |
+
+---
+
+### 📖 Borrowing
+
+| Method | Endpoint              | Auth          | Description              |
+| ------ | --------------------- | ------------- | ------------------------ |
+| GET    | `/borrows/my-history` | ✅ User/Admin | Own borrow history       |
+| GET    | `/borrows/overdue`    | ✅ Admin      | List all overdue records |
+| POST   | `/borrows`            | ✅ Admin      | Issue a book to a member |
+| GET    | `/borrows`            | ✅ Admin      | List all borrow records  |
+| GET    | `/borrows/:id`        | ✅ Admin      | Get borrow record by ID  |
+| PATCH  | `/borrows/:id/return` | ✅ Admin      | Return a book            |
+| PATCH  | `/borrows/:id/renew`  | ✅ Admin      | Renew a borrow           |
+| PATCH  | `/borrows/:id/lost`   | ✅ Admin      | Mark book as lost        |
+
+#### `POST /borrows` — body
+
+```json
+{
+  "book": "<bookId>", // required, MongoDB ObjectId
+  "member": "<memberId>", // required, MongoDB ObjectId
+  "dueDate": "2025-04-01", // required, ISO date (must be future)
+  "notes": "Handle with care" // optional, max 500 chars
+}
+```
+
+#### `PATCH /borrows/:id/return` — body
+
+```json
+{
+  "notes": "Returned on time" // optional, max 500 chars
+}
+```
+
+#### `PATCH /borrows/:id/renew` — body
+
+```json
+{
+  "newDueDate": "2025-05-01" // required, ISO date string
+}
+```
+
+#### `PATCH /borrows/:id/lost` — no body required
+
+#### `GET /borrows` — query params
+
+| Param    | Type   | Description                                             |
+| -------- | ------ | ------------------------------------------------------- |
+| `page`   | number | Page number (default: 1)                                |
+| `limit`  | number | Items per page (default: 10)                            |
+| `status` | string | Filter: `borrowed` \| `returned` \| `overdue` \| `lost` |
+| `member` | string | Filter by member ObjectId                               |
+| `book`   | string | Filter by book ObjectId                                 |
+
+#### `GET /borrows/my-history` — query params
+
+| Param    | Type   | Description                                             |
+| -------- | ------ | ------------------------------------------------------- |
+| `page`   | number | Page number (default: 1)                                |
+| `limit`  | number | Items per page (default: 10)                            |
+| `status` | string | Filter: `borrowed` \| `returned` \| `overdue` \| `lost` |
+
+---
+
+### 💰 Fines
+
+| Method | Endpoint           | Auth          | Description              |
+| ------ | ------------------ | ------------- | ------------------------ |
+| GET    | `/fines/me`        | ✅ User/Admin | Own fines                |
+| GET    | `/fines`           | ✅ Admin      | List all fines           |
+| GET    | `/fines/:id`       | ✅ Admin      | Get fine by ID           |
+| PATCH  | `/fines/:id/pay`   | ✅ Admin      | Mark fine as paid (cash) |
+| PATCH  | `/fines/:id/waive` | ✅ Admin      | Waive a fine             |
+
+> Fines are auto-created by cron jobs and on book return. Rate: **$1 per overdue day**.
+
+#### `GET /fines` — query params
+
+| Param    | Type   | Description                             |
+| -------- | ------ | --------------------------------------- |
+| `page`   | number | Page number (default: 1)                |
+| `limit`  | number | Items per page (default: 10)            |
+| `status` | string | Filter: `pending` \| `paid` \| `waived` |
+| `member` | string | Filter by member ObjectId               |
+
+#### `GET /fines/me` — query params
+
+| Param    | Type   | Description                             |
+| -------- | ------ | --------------------------------------- |
+| `page`   | number | Page number (default: 1)                |
+| `limit`  | number | Items per page (default: 10)            |
+| `status` | string | Filter: `pending` \| `paid` \| `waived` |
+
+---
+
+### 📅 Reservations
 
 | Method | Endpoint                   | Auth          | Description           |
 | ------ | -------------------------- | ------------- | --------------------- |
 | GET    | `/reservations/me`         | ✅ User/Admin | Own reservations      |
 | POST   | `/reservations`            | ✅ User/Admin | Reserve a book        |
 | GET    | `/reservations`            | ✅ Admin      | List all reservations |
-| PATCH  | `/reservations/:id/cancel` | ✅ User/Admin | Cancel reservation    |
+| PATCH  | `/reservations/:id/cancel` | ✅ User/Admin | Cancel a reservation  |
 
-### Payments
+#### `POST /reservations` — body
+
+```json
+{
+  "book": "<bookId>" // required, MongoDB ObjectId
+}
+```
+
+#### `GET /reservations` — query params
+
+| Param    | Type   | Description                                              |
+| -------- | ------ | -------------------------------------------------------- |
+| `page`   | number | Page number (default: 1)                                 |
+| `limit`  | number | Items per page (default: 10)                             |
+| `status` | string | Filter: `pending` \| `ready` \| `cancelled` \| `expired` |
+| `member` | string | Filter by member ObjectId                                |
+| `book`   | string | Filter by book ObjectId                                  |
+
+#### `GET /reservations/me` — query params
+
+| Param    | Type   | Description                                              |
+| -------- | ------ | -------------------------------------------------------- |
+| `page`   | number | Page number (default: 1)                                 |
+| `limit`  | number | Items per page (default: 10)                             |
+| `status` | string | Filter: `pending` \| `ready` \| `cancelled` \| `expired` |
+
+---
+
+### 💳 Payments
 
 | Method | Endpoint            | Auth          | Description                  |
 | ------ | ------------------- | ------------- | ---------------------------- |
@@ -301,19 +624,62 @@ Base URL: `http://localhost:5000/api/v1`
 | POST   | `/payments/stripe`  | ✅ User/Admin | Create Stripe payment intent |
 | POST   | `/payments/manual`  | ✅ Admin      | Record cash/card payment     |
 | GET    | `/payments`         | ✅ Admin      | List all payments            |
-| POST   | `/payments/webhook` | ❌            | Stripe webhook               |
+| POST   | `/payments/webhook` | ❌            | Stripe webhook (raw body)    |
 
-### Reports & Analytics
+#### `POST /payments/stripe` — body
 
-| Method | Endpoint                         | Auth     | Description              |
-| ------ | -------------------------------- | -------- | ------------------------ |
-| GET    | `/reports/dashboard`             | ✅ Admin | Dashboard summary stats  |
-| GET    | `/reports/popular-books`         | ✅ Admin | Most borrowed books      |
-| GET    | `/reports/active-members`        | ✅ Admin | Most active members      |
-| GET    | `/reports/category-distribution` | ✅ Admin | Books by category        |
-| GET    | `/reports/borrow-trends`         | ✅ Admin | Borrowing trends (daily) |
-| GET    | `/reports/revenue`               | ✅ Admin | Revenue report           |
-| GET    | `/reports/overdue`               | ✅ Admin | Overdue books report     |
+```json
+{
+  "fineId": "<fineId>" // required, MongoDB ObjectId
+}
+```
+
+Returns `{ clientSecret }` — pass to Stripe.js on frontend to confirm payment.
+
+#### `POST /payments/manual` — body
+
+```json
+{
+  "fineId": "<fineId>", // required, MongoDB ObjectId
+  "method": "cash" // required: "cash" | "card"
+}
+```
+
+#### `GET /payments` — query params
+
+| Param    | Type   | Description                                  |
+| -------- | ------ | -------------------------------------------- |
+| `page`   | number | Page number (default: 1)                     |
+| `limit`  | number | Items per page (default: 10)                 |
+| `status` | string | Filter: `pending` \| `completed` \| `failed` |
+| `member` | string | Filter by member ObjectId                    |
+| `method` | string | Filter: `stripe` \| `cash` \| `card`         |
+
+#### `GET /payments/me` — query params
+
+| Param    | Type   | Description                                  |
+| -------- | ------ | -------------------------------------------- |
+| `page`   | number | Page number (default: 1)                     |
+| `limit`  | number | Items per page (default: 10)                 |
+| `status` | string | Filter: `pending` \| `completed` \| `failed` |
+
+#### `POST /payments/webhook`
+
+Called automatically by Stripe. Requires raw body + `stripe-signature` header. **Do not call manually.**
+
+---
+
+### 📊 Reports & Analytics
+
+| Method | Endpoint                         | Auth     | Query Params          | Description               |
+| ------ | -------------------------------- | -------- | --------------------- | ------------------------- |
+| GET    | `/reports/dashboard`             | ✅ Admin | —                     | Dashboard summary stats   |
+| GET    | `/reports/popular-books`         | ✅ Admin | `limit` (default: 10) | Most borrowed books       |
+| GET    | `/reports/active-members`        | ✅ Admin | `limit` (default: 10) | Most active members       |
+| GET    | `/reports/category-distribution` | ✅ Admin | —                     | Books by category         |
+| GET    | `/reports/borrow-trends`         | ✅ Admin | `days` (default: 30)  | Daily borrow count chart  |
+| GET    | `/reports/revenue`               | ✅ Admin | `days` (default: 30)  | Revenue over time         |
+| GET    | `/reports/overdue`               | ✅ Admin | —                     | All current overdue books |
 
 ---
 
@@ -349,10 +715,11 @@ Base URL: `http://localhost:5000/api/v1`
 
 ## 📧 Email Notifications
 
-| Event             | Recipient | Template                    |
+| Event             | Recipient | Description                 |
 | ----------------- | --------- | --------------------------- |
-| Registration      | New user  | Welcome email               |
-| Password Reset    | User      | Reset link (10min expiry)   |
+| Registration      | New user  | Email verification OTP      |
+| Email Verified    | User      | Welcome email               |
+| Password Reset    | User      | Reset OTP (10min expiry)    |
 | Overdue Book      | Member    | Daily overdue reminder      |
 | Fine Created      | Member    | Fine notification           |
 | Payment Confirmed | Member    | Payment receipt             |
@@ -364,7 +731,7 @@ Base URL: `http://localhost:5000/api/v1`
 ## 📤 File Upload
 
 - **Endpoint:** `PATCH /books/:id/cover`
-- **Method:** Multipart form data with `coverImage` field
+- **Method:** `multipart/form-data` with `coverImage` field
 - **Supported formats:** JPEG, PNG, WebP, GIF
 - **Max size:** 5MB
 - **Storage:** Cloudinary (auto-optimized, resized to 800x1200 max)

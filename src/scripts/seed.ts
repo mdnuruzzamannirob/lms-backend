@@ -16,7 +16,20 @@ const seed = async () => {
       .findOne({ email: "admin@library.com" });
 
     if (existingAdmin) {
-      logger.info("Admin user already exists — skipping seed");
+      // If admin exists but is not verified, fix it
+      if (!existingAdmin.isVerified) {
+        await db
+          .collection("users")
+          .updateOne(
+            { email: "admin@library.com" },
+            { $set: { isVerified: true } },
+          );
+        logger.info("Admin user updated — email marked as verified");
+      } else {
+        logger.info(
+          "Admin user already exists and is verified — skipping seed",
+        );
+      }
       await mongoose.disconnect();
       return;
     }
@@ -33,6 +46,7 @@ const seed = async () => {
       password: hashedPassword,
       role: "admin",
       isActive: true,
+      isVerified: true,
       isDeleted: false,
       passwordChangedAt: new Date(Date.now() - 1000),
       createdAt: new Date(),
