@@ -1,69 +1,70 @@
-import { StatusCodes } from "http-status-codes";
-import mongoose from "mongoose";
-import BorrowRecord from "./borrow.model";
-import Book from "../book/book.model";
-import Member from "../member/member.model";
-import AppError from "../../errors/AppError";
-import { FineService } from "../fine/fine.service";
-import { ReservationService } from "../reservation/reservation.service";
+import { StatusCodes } from 'http-status-codes'
+import mongoose from 'mongoose'
+import AppError from '../../errors/AppError'
+import Book from '../book/book.model'
+import Fine from '../fine/fine.model'
+import { FineService } from '../fine/fine.service'
+import Member from '../member/member.model'
+import { ReservationService } from '../reservation/reservation.service'
+import BorrowRecord from './borrow.model'
 
 interface BorrowQueryOptions {
-  page?: number;
-  limit?: number;
-  status?: string;
-  member?: string;
-  book?: string;
+  page?: number
+  limit?: number
+  status?: string
+  member?: string
+  book?: string
 }
 
-const FINE_PER_DAY = 1; // $1 per day overdue
+const FINE_PER_DAY = 1 // $1 per day overdue
 
 const borrowBook = async (payload: any, issuedBy: string) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const session = await mongoose.startSession()
+  session.startTransaction()
 
   try {
     // Validate book
-    const book = await Book.findById(payload.book).session(session);
-    if (!book) throw new AppError("Book not found", StatusCodes.NOT_FOUND);
+    const book = await Book.findById(payload.book).session(session)
+    if (!book) throw new AppError('Book not found', StatusCodes.NOT_FOUND)
     if (book.availableCopies <= 0) {
-      throw new AppError("No copies available", StatusCodes.BAD_REQUEST);
+      throw new AppError('No copies available', StatusCodes.BAD_REQUEST)
     }
 
     // Validate member
-    const member = await Member.findById(payload.member).session(session);
-    if (!member) throw new AppError("Member not found", StatusCodes.NOT_FOUND);
+    const member = await Member.findById(payload.member).session(session)
+    if (!member) throw new AppError('Member not found', StatusCodes.NOT_FOUND)
     if (!member.isActive) {
-      throw new AppError("Membership is inactive", StatusCodes.BAD_REQUEST);
+      throw new AppError('Membership is inactive', StatusCodes.BAD_REQUEST)
     }
     if (member.membershipExpiry < new Date()) {
-      throw new AppError("Membership has expired", StatusCodes.BAD_REQUEST);
+      throw new AppError('Membership has expired', StatusCodes.BAD_REQUEST)
     }
     if (member.currentBorrowed >= member.maxBooksAllowed) {
       throw new AppError(
         `Borrow limit reached (${member.maxBooksAllowed})`,
         StatusCodes.BAD_REQUEST,
-      );
+      )
     }
 
     // Check for duplicate active borrow
     const activeBorrow = await BorrowRecord.findOne({
       book: payload.book,
       member: payload.member,
-      status: { $in: ["borrowed", "overdue"] },
-    }).session(session);
+      status: { $in: ['borrowed', 'overdue'] },
+    }).session(session)
     if (activeBorrow) {
       throw new AppError(
-        "Member already has this book borrowed",
+        'Member already has this book borrowed',
         StatusCodes.CONFLICT,
-      );
+      )
     }
 
-    const dueDate = new Date(payload.dueDate);
+    const dueDate = new Date(payload.dueDate)
     if (dueDate <= new Date()) {
       throw new AppError(
-        "Due date must be in the future",
+        'Due date must be in the future',
         StatusCodes.BAD_REQUEST,
-      );
+      )
     }
 
     // Create record
@@ -79,173 +80,186 @@ const borrowBook = async (payload: any, issuedBy: string) => {
         },
       ],
       { session },
-    );
+    )
 
     // Update counters
     await Book.findByIdAndUpdate(
       payload.book,
       { $inc: { availableCopies: -1 } },
       { session },
-    );
+    )
     await Member.findByIdAndUpdate(
       payload.member,
       { $inc: { currentBorrowed: 1 } },
       { session },
-    );
+    )
 
-    await session.commitTransaction();
+    await session.commitTransaction()
 
     return BorrowRecord.findById(record._id)
-      .populate("book")
-      .populate("member")
-      .populate("issuedBy", "-password")
-      .lean();
+      .populate('book')
+      .populate('member')
+      .populate('issuedBy', '-password')
+      .lean()
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
+    await session.abortTransaction()
+    throw error
   } finally {
-    session.endSession();
+    session.endSession()
   }
-};
+}
 
 const returnBook = async (
   recordId: string,
   returnedBy: string,
   notes?: string,
 ) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const session = await mongoose.startSession()
+  session.startTransaction()
 
   try {
-    const record = await BorrowRecord.findById(recordId).session(session);
+    const record = await BorrowRecord.findById(recordId).session(session)
     if (!record) {
-      throw new AppError("Borrow record not found", StatusCodes.NOT_FOUND);
+      throw new AppError('Borrow record not found', StatusCodes.NOT_FOUND)
     }
-    if (record.status === "returned") {
-      throw new AppError("Book already returned", StatusCodes.BAD_REQUEST);
+    if (record.status === 'returned') {
+      throw new AppError('Book already returned', StatusCodes.BAD_REQUEST)
     }
-    if (record.status === "lost") {
+    if (record.status === 'lost') {
       throw new AppError(
-        "Book marked as lost — cannot return",
+        'Book marked as lost — cannot return',
         StatusCodes.BAD_REQUEST,
-      );
+      )
     }
 
-    const now = new Date();
-    record.returnDate = now;
-    record.returnedTo = new mongoose.Types.ObjectId(returnedBy);
-    record.status = "returned";
-    if (notes) record.notes = notes;
-    await record.save({ session });
+    const now = new Date()
+    record.returnDate = now
+    record.returnedTo = new mongoose.Types.ObjectId(returnedBy)
+    record.status = 'returned'
+    if (notes) record.notes = notes
+    await record.save({ session })
 
     // Restore book copy & decrement member count
     await Book.findByIdAndUpdate(
       record.book,
       { $inc: { availableCopies: 1 } },
       { session },
-    );
+    )
     await Member.findByIdAndUpdate(
       record.member,
       { $inc: { currentBorrowed: -1 } },
       { session },
-    );
+    )
 
-    // Create fine if overdue
+    // Create or update fine if overdue
     if (record.dueDate < now) {
       const overdueDays = Math.ceil(
         (now.getTime() - record.dueDate.getTime()) / (1000 * 60 * 60 * 24),
-      );
-      await FineService.createFine(
-        {
-          member: record.member.toString(),
-          borrowRecord: record._id.toString(),
-          amount: overdueDays * FINE_PER_DAY,
-          reason: `Overdue by ${overdueDays} day(s)`,
-        },
-        session,
-      );
+      )
+      // Check if a pending fine already exists (created by the cron job)
+      const existingFine = await Fine.findOne({
+        borrowRecord: record._id,
+        status: 'pending',
+      }).session(session)
+
+      if (existingFine) {
+        // Update the existing fine with the final overdue amount
+        existingFine.amount = overdueDays * FINE_PER_DAY
+        existingFine.reason = `Overdue by ${overdueDays} day(s)`
+        await existingFine.save({ session })
+      } else {
+        await FineService.createFine(
+          {
+            member: record.member.toString(),
+            borrowRecord: record._id.toString(),
+            amount: overdueDays * FINE_PER_DAY,
+            reason: `Overdue by ${overdueDays} day(s)`,
+          },
+          session,
+        )
+      }
     }
 
-    await session.commitTransaction();
+    await session.commitTransaction()
 
     // Notify next person in reservation queue
-    await ReservationService.notifyNextInQueue(record.book.toString());
+    await ReservationService.notifyNextInQueue(record.book.toString())
 
     return BorrowRecord.findById(recordId)
-      .populate("book")
-      .populate("member")
-      .populate("issuedBy", "-password")
-      .populate("returnedTo", "-password")
-      .lean();
+      .populate('book')
+      .populate('member')
+      .populate('issuedBy', '-password')
+      .populate('returnedTo', '-password')
+      .lean()
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
+    await session.abortTransaction()
+    throw error
   } finally {
-    session.endSession();
+    session.endSession()
   }
-};
+}
 
 const renewBook = async (recordId: string, newDueDate: string) => {
-  const record = await BorrowRecord.findById(recordId);
+  const record = await BorrowRecord.findById(recordId)
   if (!record) {
-    throw new AppError("Borrow record not found", StatusCodes.NOT_FOUND);
+    throw new AppError('Borrow record not found', StatusCodes.NOT_FOUND)
   }
-  if (record.status !== "borrowed" && record.status !== "overdue") {
+  if (record.status !== 'borrowed' && record.status !== 'overdue') {
     throw new AppError(
-      "Only active borrows can be renewed",
+      'Only active borrows can be renewed',
       StatusCodes.BAD_REQUEST,
-    );
+    )
   }
   if (record.renewCount >= record.maxRenewals) {
-    throw new AppError("Maximum renewals reached", StatusCodes.BAD_REQUEST);
+    throw new AppError('Maximum renewals reached', StatusCodes.BAD_REQUEST)
   }
 
-  const due = new Date(newDueDate);
+  const due = new Date(newDueDate)
   if (due <= new Date()) {
     throw new AppError(
-      "New due date must be in the future",
+      'New due date must be in the future',
       StatusCodes.BAD_REQUEST,
-    );
+    )
   }
 
-  record.dueDate = due;
-  record.renewCount += 1;
-  record.status = "borrowed";
-  await record.save();
+  record.dueDate = due
+  record.renewCount += 1
+  record.status = 'borrowed'
+  await record.save()
 
   return BorrowRecord.findById(recordId)
-    .populate("book")
-    .populate("member")
-    .lean();
-};
+    .populate('book')
+    .populate('member')
+    .lean()
+}
 
 const markLost = async (recordId: string) => {
-  const record = await BorrowRecord.findById(recordId);
+  const record = await BorrowRecord.findById(recordId)
   if (!record) {
-    throw new AppError("Borrow record not found", StatusCodes.NOT_FOUND);
+    throw new AppError('Borrow record not found', StatusCodes.NOT_FOUND)
   }
-  if (record.status === "returned") {
+  if (record.status === 'returned') {
     throw new AppError(
-      "Returned books cannot be marked lost",
+      'Returned books cannot be marked lost',
       StatusCodes.BAD_REQUEST,
-    );
+    )
   }
-  if (record.status === "lost") {
-    throw new AppError("Already marked as lost", StatusCodes.BAD_REQUEST);
+  if (record.status === 'lost') {
+    throw new AppError('Already marked as lost', StatusCodes.BAD_REQUEST)
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const session = await mongoose.startSession()
+  session.startTransaction()
 
   try {
-    record.status = "lost";
-    await record.save({ session });
+    record.status = 'lost'
+    await record.save({ session })
 
     await Member.findByIdAndUpdate(
       record.member,
       { $inc: { currentBorrowed: -1 } },
       { session },
-    );
+    )
 
     // Lost book fine (replacement cost, flat $50)
     await FineService.createFine(
@@ -253,116 +267,115 @@ const markLost = async (recordId: string) => {
         member: record.member.toString(),
         borrowRecord: record._id.toString(),
         amount: 50,
-        reason: "Book reported lost — replacement fee",
+        reason: 'Book reported lost — replacement fee',
       },
       session,
-    );
+    )
 
-    await session.commitTransaction();
+    await session.commitTransaction()
     return BorrowRecord.findById(recordId)
-      .populate("book")
-      .populate("member")
-      .lean();
+      .populate('book')
+      .populate('member')
+      .lean()
   } catch (error) {
-    await session.abortTransaction();
-    throw error;
+    await session.abortTransaction()
+    throw error
   } finally {
-    session.endSession();
+    session.endSession()
   }
-};
+}
 
 const getAllBorrowRecords = async (options: BorrowQueryOptions) => {
-  const { page = 1, limit = 10, status, member, book } = options;
+  const { page = 1, limit = 10, status, member, book } = options
 
-  const filter: Record<string, unknown> = {};
-  if (status) filter.status = status;
-  if (member) filter.member = member;
-  if (book) filter.book = book;
+  const filter: Record<string, unknown> = {}
+  if (status) filter.status = status
+  if (member) filter.member = member
+  if (book) filter.book = book
 
-  const skip = (page - 1) * limit;
+  const skip = (page - 1) * limit
 
   const [records, total] = await Promise.all([
     BorrowRecord.find(filter)
-      .populate("book", "title isbn")
-      .populate("member", "membershipId")
-      .populate("issuedBy", "name email")
+      .populate('book', 'title isbn')
+      .populate('member', 'membershipId')
+      .populate('issuedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),
     BorrowRecord.countDocuments(filter),
-  ]);
+  ])
 
   return {
     data: records,
     meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-  };
-};
+  }
+}
 
 const getBorrowRecordById = async (id: string) => {
   const record = await BorrowRecord.findById(id)
-    .populate("book")
-    .populate("member")
-    .populate("issuedBy", "-password")
-    .populate("returnedTo", "-password")
-    .lean();
+    .populate('book')
+    .populate('member')
+    .populate('issuedBy', '-password')
+    .populate('returnedTo', '-password')
+    .lean()
   if (!record) {
-    throw new AppError("Borrow record not found", StatusCodes.NOT_FOUND);
+    throw new AppError('Borrow record not found', StatusCodes.NOT_FOUND)
   }
-  return record;
-};
+  return record
+}
 
 const getMyBorrowHistory = async (
   userId: string,
   options: BorrowQueryOptions,
 ) => {
-  const { page = 1, limit = 10, status } = options;
+  const { page = 1, limit = 10, status } = options
 
   // Find the member by user id
-  const member = await Member.findOne({ user: userId });
+  const member = await Member.findOne({ user: userId })
   if (!member) {
-    throw new AppError("You are not a library member", StatusCodes.NOT_FOUND);
+    throw new AppError('You are not a library member', StatusCodes.NOT_FOUND)
   }
 
-  const filter: Record<string, unknown> = { member: member._id };
-  if (status) filter.status = status;
+  const filter: Record<string, unknown> = { member: member._id }
+  if (status) filter.status = status
 
-  const skip = (page - 1) * limit;
+  const skip = (page - 1) * limit
 
   const [records, total] = await Promise.all([
     BorrowRecord.find(filter)
-      .populate("book", "title isbn authors")
+      .populate('book', 'title isbn authors')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),
     BorrowRecord.countDocuments(filter),
-  ]);
+  ])
 
   return {
     data: records,
     meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-  };
-};
+  }
+}
 
 const getOverdueRecords = async () => {
-  const now = new Date();
-  const records = await BorrowRecord.find({
-    status: "borrowed",
-    dueDate: { $lt: now },
-  })
-    .populate("book", "title isbn")
-    .populate("member", "membershipId")
-    .lean();
+  const now = new Date()
 
-  // Also mark them overdue in DB
+  // First, mark any borrowed records that have passed due date as overdue
   await BorrowRecord.updateMany(
-    { status: "borrowed", dueDate: { $lt: now } },
-    { $set: { status: "overdue" } },
-  );
+    { status: 'borrowed', dueDate: { $lt: now } },
+    { $set: { status: 'overdue' } },
+  )
 
-  return records;
-};
+  // Then return all currently overdue records
+  const records = await BorrowRecord.find({ status: 'overdue' })
+    .populate('book', 'title isbn')
+    .populate('member', 'membershipId')
+    .lean()
+
+  return records
+}
 
 export const BorrowService = {
   borrowBook,
@@ -373,4 +386,4 @@ export const BorrowService = {
   getBorrowRecordById,
   getMyBorrowHistory,
   getOverdueRecords,
-};
+}

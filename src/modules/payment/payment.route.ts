@@ -1,39 +1,34 @@
-import { Router } from "express";
-import express from "express";
-import { PaymentController } from "./payment.controller";
-import { PaymentValidation } from "./payment.validation";
-import validateRequest from "../../middleware/validate";
-import auth from "../../middleware/auth";
+import { Router } from 'express'
+import auth from '../../middleware/auth'
+import validateRequest from '../../middleware/validate'
+import { PaymentController } from './payment.controller'
+import { PaymentValidation } from './payment.validation'
 
-const router = Router();
+const router = Router()
 
-// Stripe webhook (must use raw body parser, no auth)
-router.post(
-  "/webhook",
-  express.raw({ type: "application/json" }),
-  PaymentController.stripeWebhook,
-);
+// Stripe webhook — raw body already applied at app level for this path
+router.post('/webhook', PaymentController.stripeWebhook)
 
 // User's own payments
-router.get("/me", auth("user", "admin"), PaymentController.getMyPayments);
+router.get('/me', auth('user', 'admin'), PaymentController.getMyPayments)
 
 // Create Stripe payment intent
 router.post(
-  "/stripe",
-  auth("user", "admin"),
+  '/stripe',
+  auth('user', 'admin'),
   validateRequest(PaymentValidation.createStripePayment),
   PaymentController.createStripePayment,
-);
+)
 
 // Admin: record manual payment
 router.post(
-  "/manual",
-  auth("admin"),
+  '/manual',
+  auth('admin'),
   validateRequest(PaymentValidation.recordManualPayment),
   PaymentController.recordManualPayment,
-);
+)
 
 // Admin: list all payments
-router.get("/", auth("admin"), PaymentController.getAllPayments);
+router.get('/', auth('admin'), PaymentController.getAllPayments)
 
-export const PaymentRoutes = router;
+export const PaymentRoutes = router

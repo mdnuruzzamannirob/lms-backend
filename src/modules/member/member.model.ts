@@ -1,19 +1,19 @@
-import { Schema, model } from "mongoose";
-import { IMember, MemberModel } from "./member.interface";
+import { Query, Schema, model } from 'mongoose'
+import { IMember, MemberModel } from './member.interface'
 
 const memberSchema = new Schema<IMember, MemberModel>(
   {
     user: {
       type: Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       unique: true,
     },
     membershipId: { type: String, required: true, unique: true },
     membershipType: {
       type: String,
-      enum: ["standard", "premium", "student"],
-      default: "standard",
+      enum: ['standard', 'premium', 'student'],
+      default: 'standard',
     },
     phone: { type: String, trim: true },
     address: { type: String, trim: true },
@@ -24,13 +24,12 @@ const memberSchema = new Schema<IMember, MemberModel>(
     isDeleted: { type: Boolean, default: false },
   },
   { timestamps: true },
-);
+)
 
-memberSchema.pre(/^find/, function (this: any, next: () => void) {
-  this.find({ isDeleted: { $ne: true } });
-  next();
-});
+memberSchema.pre(/^find/, function (this: Query<any, IMember>) {
+  this.where({ isDeleted: { $ne: true } })
+})
 
-const Member = model<IMember, MemberModel>("Member", memberSchema);
+const Member = model<IMember, MemberModel>('Member', memberSchema)
 
-export default Member;
+export default Member
